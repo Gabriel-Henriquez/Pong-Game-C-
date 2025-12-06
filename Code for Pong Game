@@ -1,0 +1,238 @@
+#include "raylib.h"
+#include <iostream>
+
+// --- Game Object Structures ---
+
+struct Paddle {
+    float x, y;
+    float width, height;
+    int speed;
+    Color color;
+};
+
+struct Ball {
+    float x, y;
+    float radius;
+    float speedX, speedY;
+    Color color;
+};
+
+// --- Function Prototypes ---
+
+void DrawPaddle(Paddle paddle);
+void DrawBall(Ball ball);
+void UpdateGame(Ball& ball, Paddle& playerPaddle, Paddle& cpuPaddle, int screenWidth, int screenHeight);
+void ResetBall(Ball& ball, int screenWidth, int screenHeight);
+void MovePlayerPaddle(Paddle& paddle, int screenHeight);
+void MoveCpuPaddle(Paddle& cpuPaddle, Ball ball, int screenHeight);
+bool CheckCollision(Ball ball, Paddle paddle);
+void HandleScoring(Ball& ball, int screenWidth, int screenHeight);
+
+// --- Global Variables ---
+int playerScore = 0;
+int cpuScore = 0;
+bool scoreScored = false;
+float scoreTimer = 0.0f;
+const float SCORE_DISPLAY_TIME = 1.0f;
+
+// --- Main Game Loop (Updated Drawing Logic) ---
+
+int main() {
+    // Initialization
+    const int screenWidth = 1280;
+    const int screenHeight = 800;
+    const int centerLineX = screenWidth / 2;
+
+    InitWindow(screenWidth, screenHeight, "Pong Game with Center Circle and Net");
+    SetTargetFPS(60);
+
+    // Initialize Game Objects
+    Ball ball;
+    ball.x = (float)centerLineX;
+    ball.y = (float)screenHeight / 2.0f;
+    ball.radius = 10.0f;
+    ball.speedX = 7.0f;
+    ball.speedY = 7.0f;
+    ball.color = YELLOW; 
+
+    Paddle playerPaddle;
+    playerPaddle.width = 25.0f;
+    playerPaddle.height = 120.0f;
+    playerPaddle.x = (float)screenWidth - playerPaddle.width - 20;
+    playerPaddle.y = (float)screenHeight / 2.0f - playerPaddle.height / 2.0f;
+    playerPaddle.speed = 10;
+    playerPaddle.color = LIME; 
+
+    Paddle cpuPaddle;
+    cpuPaddle.width = 25.0f;
+    cpuPaddle.height = 120.0f;
+    cpuPaddle.x = 20.0f;
+    cpuPaddle.y = (float)screenHeight / 2.0f - cpuPaddle.height / 2.0f;
+    cpuPaddle.speed = 12; 
+    cpuPaddle.color = BLUE; 
+
+    // Game loop
+    while (!WindowShouldClose()) {
+        // 1. Update (Logic)
+        UpdateGame(ball, playerPaddle, cpuPaddle, screenWidth, screenHeight);
+        
+        if (scoreScored) {
+            scoreTimer += GetFrameTime();
+            if (scoreTimer >= SCORE_DISPLAY_TIME) {
+                scoreScored = false;
+                scoreTimer = 0.0f;
+            }
+        }
+
+        // 2. Draw (Rendering)
+        BeginDrawing();
+
+        ClearBackground(DARKGRAY); 
+
+        // -----------------------------------------------------
+        // 🌟 NEW: Draw Center Circle 
+        // -----------------------------------------------------
+        // Draw a light gray filled circle
+        DrawCircle(centerLineX, screenHeight / 2, 80, Fade(RAYWHITE, 0.1f)); 
+        // Draw a white outline for the circle
+        DrawCircleLines(centerLineX, screenHeight / 2, 80, RAYWHITE); 
+
+        // -----------------------------------------------------
+        // 🌟 NEW: Draw Dashed Net (Center Line)
+        // -----------------------------------------------------
+        int segmentLength = 20;
+        int gapLength = 20;
+        
+        for (int y = 0; y < screenHeight; y += (segmentLength + gapLength)) {
+            DrawLine(centerLineX, y, centerLineX, y + segmentLength, RAYWHITE);
+        }
+
+        DrawFPS(10, 10);
+
+        // Draw Score
+        DrawText(TextFormat("%i", cpuScore), screenWidth / 4 - 20, 20, 80, cpuPaddle.color);
+        DrawText(TextFormat("%i", playerScore), 3 * screenWidth / 4 - 20, 20, 80, playerPaddle.color);
+
+        // Draw Flashing "Score!" text
+        if (scoreScored) {
+            Color flashColor = ((int)(scoreTimer * 10) % 2 == 0) ? RED : ORANGE;
+            
+            DrawText("SCORE!", 
+                     centerLineX - MeasureText("SCORE!", 120) / 2,
+                     screenHeight / 2 - 60,
+                     120, 
+                     flashColor);
+        }
+
+        // Draw Game Objects
+        DrawPaddle(playerPaddle);
+        DrawPaddle(cpuPaddle);
+        DrawBall(ball);
+
+        EndDrawing();
+    }
+
+    // De-Initialization
+    CloseWindow();
+
+    return 0;
+}
+
+// --- Function Definitions (All definitions below this point are unchanged) ---
+
+void DrawPaddle(Paddle paddle) {
+    DrawRectangleV({paddle.x, paddle.y}, {paddle.width, paddle.height}, paddle.color);
+}
+
+void DrawBall(Ball ball) {
+    DrawCircleV({ball.x, ball.y}, ball.radius, ball.color);
+}
+
+void UpdateGame(Ball& ball, Paddle& playerPaddle, Paddle& cpuPaddle, int screenWidth, int screenHeight) {
+    // Ball Movement
+    ball.x += ball.speedX;
+    ball.y += ball.speedY;
+
+    // Ball Collision with Top/Bottom Walls
+    if (ball.y + ball.radius >= screenHeight || ball.y - ball.radius <= 0) {
+        ball.speedY *= -1;
+    }
+
+    HandleScoring(ball, screenWidth, screenHeight);
+
+    // Paddle Movement
+    MovePlayerPaddle(playerPaddle, screenHeight);
+    MoveCpuPaddle(cpuPaddle, ball, screenHeight);
+
+    // Collision Check (Ball vs Paddles)
+    if (CheckCollision(ball, playerPaddle)) {
+        ball.speedX *= -1.1f;
+        ball.speedY = (ball.y - (playerPaddle.y + playerPaddle.height / 2.0f)) / (playerPaddle.height / 2.0f) * 7.0f;
+    }
+
+    if (CheckCollision(ball, cpuPaddle)) {
+        ball.speedX *= -1.1f;
+        ball.speedY = (ball.y - (cpuPaddle.y + cpuPaddle.height / 2.0f)) / (cpuPaddle.height / 2.0f) * 7.0f;
+    }
+}
+
+void HandleScoring(Ball& ball, int screenWidth, int screenHeight) {
+    if (ball.x + ball.radius >= screenWidth) {
+        cpuScore++;
+        scoreScored = true;
+        scoreTimer = 0.0f;
+        ResetBall(ball, screenWidth, screenHeight);
+    }
+
+    if (ball.x - ball.radius <= 0) {
+        playerScore++;
+        scoreScored = true;
+        scoreTimer = 0.0f;
+        ResetBall(ball, screenWidth, screenHeight);
+    }
+}
+
+void ResetBall(Ball& ball, int screenWidth, int screenHeight) {
+    ball.x = (float)screenWidth / 2.0f;
+    ball.y = (float)screenHeight / 2.0f;
+    ball.speedX *= -1;
+    ball.speedX /= 1.1f;
+}
+
+void MovePlayerPaddle(Paddle& paddle, int screenHeight) {
+    if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+        paddle.y -= paddle.speed;
+    }
+    if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
+        paddle.y += paddle.speed;
+    }
+
+    if (paddle.y <= 0) {
+        paddle.y = 0;
+    }
+    if (paddle.y + paddle.height >= screenHeight) {
+        paddle.y = (float)screenHeight - paddle.height;
+    }
+}
+
+void MoveCpuPaddle(Paddle& cpuPaddle, Ball ball, int screenHeight) {
+    float targetY = ball.y - cpuPaddle.height / 2.0f;
+
+    if (cpuPaddle.y < targetY) {
+        cpuPaddle.y += cpuPaddle.speed;
+    }
+    if (cpuPaddle.y > targetY) {
+        cpuPaddle.y -= cpuPaddle.speed;
+    }
+
+    if (cpuPaddle.y <= 0) {
+        cpuPaddle.y = 0;
+    }
+    if (cpuPaddle.y + cpuPaddle.height >= screenHeight) {
+        cpuPaddle.y = (float)screenHeight - cpuPaddle.height;
+    }
+}
+
+bool CheckCollision(Ball ball, Paddle paddle) {
+    return CheckCollisionCircleRec({ball.x, ball.y}, ball.radius, {paddle.x, paddle.y, paddle.width, paddle.height});
+}
